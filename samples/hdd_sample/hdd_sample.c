@@ -1,47 +1,23 @@
-/*
-# _____     ___ ____     ___ ____
-#  ____|   |    ____|   |        | |____|
-# |     ___|   |____ ___|    ____| |    \    PS2DEV Open Source Project.
-#-----------------------------------------------------------------------
-# Copyright 2001-2004, ps2dev - http://www.ps2dev.org
-# Licenced under Academic Free License version 2.0
-# Review ps2sdk README & LICENSE files for further details.
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <malloc.h>
-#include <stdbool.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <dirent.h>
-#include <unistd.h>
-
-#include <ps2_poweroff_driver.h>
+#include <sys/stat.h>
 #include <ps2_hdd_driver.h>
-#include <libpwroff.h>
 #include <sifrpc.h>
 #include <iopcontrol.h>
 #include <sbv_patches.h>
 #include <debug.h>
-
-// **************  ATTENTION **************
-// ****************************************
-// ****************************************
-// THIS EXAMPLE JUST HAVE THE HDD DRIVER,
-// SO IT WON'T WORK IN USB/MC...
-// ****************************************
-// ****************************************
-// **************  ATTENTION **************
+#define NEWLIB_PORT_AWARE
+#include <fileXio_rpc.h>
+#include <hdd-ioctl.h>
+#include <io_common.h>
 
 static void reset_IOP() {
     SifInitRpc(0);
-#if !defined(DEBUG) || defined(BUILD_FOR_PCSX2)
-    /* Comment this line if you don't wanna debug the output */
     while (!SifIopReset(NULL, 0)) {};
-#endif
-
     while (!SifIopSync()) {};
     SifInitRpc(0);
     sbv_patch_enable_lmb();
@@ -49,71 +25,97 @@ static void reset_IOP() {
 }
 
 static void init_drivers() {
-    init_hdd_driver(true, true);
+    init_hdd_driver(true, false);
 }
 
 static void deinit_drivers() {
     deinit_hdd_driver(true);
 }
 
-static void print_current_folder() {
-    char cwd[FILENAME_MAX];
+static void copy_directory(const char *src, const char *dst) {
     DIR *dp;
     struct dirent *ep;
-    int max = 10;
+    struct stat st;
+    char src_path[1024], dst_path[1024];
 
-    getcwd(cwd, sizeof(cwd));
-    scr_printf("\n\nTrying to open %s\n\n", cwd);
-
-    dp = opendir(cwd);
+    dp = opendir(src);
     if (dp != NULL) {
-        int count = 0;
-        while ((ep = readdir(dp)) != NULL && count != max) {
-            scr_printf(ep->d_name);
-            scr_printf(" ");
-
-            char fname[1024];
-            snprintf(fname, 1024, "%s%s", cwd, ep->d_name);
-            struct stat st;
-            stat(fname, &st);
-
-            char size[10];
-            itoa(st.st_size, size, 10);
-            scr_printf(size);
-
-            scr_printf(S_ISDIR(st.st_mode) ? " DIR\n" : " FILE\n");
-
-            count++;
+        mkdir(dst, 0777);
+        while ((ep = readdir(dp)) != NULL) {
+            if (strcmp(ep->d_name, ".") == 0 || strcmp(ep->d_name, "..") == 0) {
+                continue;
+            }
+            snprintf(src_path, sizeof(src_path), "%s/%s", src, ep->d_name);
+            snprintf(dst_path, sizeof(dst_path), "%s/%s", dst, ep->d_name);
+            stat(src_path, &st);
+            if (S_ISDIR(st.st_mode)) {
+                copy_directory(src_path, dst_path);
+            } else {
+                printf("Copying file: %s -> %s\n", src_path, dst_path);
+                FILE *dst_file = fopen(dst_path, "wb");
+                if (!dst_file) {
+                    printf("Failed to open destination file: %s\n", dst_path);
+                    continue;
+                }
+                FILE *src_file = fopen(src_path, "rb");
+                if (!src_file) {
+                    printf("Failed to open source file: %s\n", src_path);
+                    fclose(dst_file);
+                    continue;
+                }
+                char buffer[8192];
+                size_t bytes;
+                while ((bytes = fread(buffer, 1, sizeof(buffer), src_file)) > 0) {
+                    printf("Copied %zu bytes\n", bytes);
+                    fwrite(buffer, 1, bytes, dst_file);
+                }
+                fclose(src_file);
+                fclose(dst_file);
+            }
         }
         closedir(dp);
     } else {
-        scr_printf("Couldn't open the directory\n");
-    }
-}
-
-void create_log_file() {
-    FILE *pFile;
-    pFile = fopen("Log.txt", "a");
-    if (pFile) {
-        fprintf(pFile, "This is a test to check if it working\n");
-        fclose(pFile);
-    } else {
-        scr_printf("Couldn't create Log.txt file\n");
+        printf("Failed to open directory: %s\n", src);
     }
 }
 
 int main(int argc, char **argv) {
+    if (argc < 1) {
+        printf("Invalid arguments\n");
+        return 1;
+    }
+
     reset_IOP();
     init_scr();
-
     init_drivers();
 
-    scr_printf("\n\n\nHDD example!\n\n\n");
-    mount_current_hdd_partition();
-    print_current_folder();
-    create_log_file();
+    char *filename = strrchr(argv[0], '/');
+    if (filename) {
+        filename++;
+    } else {
+        filename = argv[0];
+    }
 
-    umount_current_hdd_partition();
+    char *dot = strrchr(filename, '.');
+    if (dot) {
+        *dot = '\0';
+    }
+
+
+    scr_printf("\n\n\nHDD example!\n\n\n");
+    scr_printf("Filename: %s\n", filename);
+    int res = mount_hdd_partition("pfs0:", "hdd0:PP.KNAC_00001");
+    printf("mount_hdd_partition pfs0: hdd0:KNAC_00001 res=%i\n", res);
+
+    char src_path[1024], dst_path[1024];
+    snprintf(src_path, sizeof(src_path), "pfs0:/PP.KNAC_00001/%s", filename);
+    snprintf(dst_path, sizeof(dst_path), "pfs0:");
+
+    copy_directory(src_path, dst_path);
+
+    umount_hdd_partition("pfs0:");
     deinit_drivers();
     sleep(5);
+
+    return 0;
 }

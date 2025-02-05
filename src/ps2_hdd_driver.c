@@ -79,9 +79,21 @@ static enum HDD_INIT_STATUS loadIRXs(void) {
                     "\0"
                     "20";
 
+    char pfsarg[] = "-m"
+                    "\0"
+                    "5"
+                    "\0"
+                    "-o"
+                    "\0"
+                    "30"
+                    "\0"
+                    "-n"
+                    "\0"
+                    "120";
+
     /* PS2ATAD.IRX */
     if (CHECK_IRX_LOAD(ps2atad)) {
-       __ps2atad_id = SifExecModuleBuffer(&ps2atad_irx, size_ps2atad_irx, 0, NULL, &__ps2atad_ret);
+        __ps2atad_id = SifExecModuleBuffer(&ps2atad_irx, size_ps2atad_irx, 0, NULL, &__ps2atad_ret);
         if (CHECK_IRX_ERR(ps2atad))
             return HDD_INIT_STATUS_PS2ATAD_IRX_ERROR;
     }
@@ -99,7 +111,7 @@ static enum HDD_INIT_STATUS loadIRXs(void) {
 
     /* PS2FS.IRX */
     if (CHECK_IRX_LOAD(ps2fs)) {
-        __ps2fs_id = SifExecModuleBuffer(&ps2fs_irx, size_ps2fs_irx, 0, NULL, &__ps2fs_ret);
+        __ps2fs_id = SifExecModuleBuffer(&ps2fs_irx, size_ps2fs_irx, sizeof(pfsarg), pfsarg, &__ps2fs_ret);
         if (CHECK_IRX_ERR(ps2fs))
             return HDD_INIT_STATUS_PS2FS_IRX_ERROR;
     }
@@ -170,11 +182,12 @@ void deinit_hdd_driver(bool deinit_dependencies) {
 
 #ifdef F_mount_hdd_partition_ps2_hdd_driver
 enum HDD_MOUNT_STATUS mount_hdd_partition(const char *mountpoint, const char *blockdev) {
+    int ret;
     if (__hdd_init_status != HDD_INIT_STATUS_IRX_OK)
         return HDD_MOUNT_INIT_STATUS_NOT_READY;
 
-    if (fileXioMount(mountpoint, blockdev, FIO_MT_RDWR) < 0) {
-        return HDD_MOUNT_STATUS_ERROR;
+    if ((ret = fileXioMount(mountpoint, blockdev, FIO_MT_RDWR)) < 0) {
+        return ret;
     }
 
     return HDD_MOUNT_STATUS_OK;
