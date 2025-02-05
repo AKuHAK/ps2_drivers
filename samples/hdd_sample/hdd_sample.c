@@ -106,10 +106,12 @@ int main(int argc, char **argv) {
     scr_printf("Filename: %s\n", filename);
     int res = mount_hdd_partition("pfs0:", "hdd0:PP.KNAC_00001");
     printf("mount_hdd_partition pfs0: hdd0:KNAC_00001 res=%i\n", res);
+    res = mount_hdd_partition("pfs1:", "hdd0:__common");
+    printf("mount_hdd_partition pfs1: hdd0:__common res=%i\n", res);
 
     char src_path[1024], dst_path[1024];
     snprintf(src_path, sizeof(src_path), "pfs0:/PP.KNAC_00001/%s", filename);
-    snprintf(dst_path, sizeof(dst_path), "pfs0:");
+    snprintf(dst_path, sizeof(dst_path), "pfs1:");
 
     copy_directory(src_path, dst_path);
 
